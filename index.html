@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>sudoku-solver-ai · 数独求解与提示</title>
+<style>
+  body { font-family: -apple-system, "PingFang SC", sans-serif; background:#f5f6f8; margin:0; padding:24px; color:#1f2329; }
+  h1 { font-size:20px; }
+  .sub { color:#6b7280; font-size:13px; margin-bottom:16px; }
+  #grid { border-collapse:collapse; margin:12px 0; }
+  #grid td { width:44px; height:44px; border:1px solid #999; text-align:center; }
+  #grid input { width:42px; height:42px; text-align:center; font-size:18px; border:none; outline:none; }
+  .fixed input { background:#eef2ff; font-weight:bold; }
+  .hint input { background:#fff3bf; }
+  button { background:#2f6fed; color:#fff; border:none; border-radius:8px; padding:9px 16px; font-size:14px; cursor:pointer; margin-right:8px; }
+  button.ghost { background:#e5e7eb; color:#1f2329; }
+  #msg { margin-top:12px; font-size:14px; color:#2f6fed; min-height:20px; }
+</style>
+</head>
+<body>
+  <h1>数独求解与提示</h1>
+  <div class="sub">生成题目（挖空）、回溯一键求解、逐步提示下一个应填的数。纯前端，无需联网与 API key。</div>
+  <div>
+    <button onclick="newGame()">生成题目</button>
+    <button onclick="solveGame()" class="ghost">求解</button>
+    <button onclick="hintOne()" class="ghost">提示一格</button>
+    <button onclick="clearAll()" class="ghost">清空</button>
+  </div>
+  <table id="grid"></table>
+  <div id="msg"></div>
+
+<!-- SUDOKU_LOGIC_BEGIN -->
+<script>
+// ===== 纯函数：数独核心（被 Node 测试提取并断言）=====
+function isValidPlace(board, r, c, v) {
+  for (let i = 0; i < 9; i++) {
+    if (board[r][i] === v) return false;
+    if (board[i][c] === v) return false;
+  }
+  const br = Math.floor(r / 3) * 3, bc = Math.floor(c / 3) * 3;
+  for (let i = 0; i < 3; i++)
+    for (let j = 0; j < 3; j++)
+      if (board[br + i][bc + j] === v) return false;
+  return true;
+}
+
+function solveSudoku(board) {
+  // 返回一个解（不修改原数组）；无解返回 null。
+  const b = board.map(row => row.slice());
+  function backtrack() {
+    for (let r = 0; r < 9; r++)
+      for (let c = 0; c < 9; c++) {
+        if (b[r][c] === 0) {
+          for (let v = 1; v <= 9; v++) {
+            if (isValidPlace(b, r, c, v)) {
+              b[r][c] = v;
+              if (backtrack()) return true;
+              b[r][c] = 0;
+            }
+          }
+          return false;
+        }
+      }
+    return true;
+  }
+  return backtrack() ? b : null;
+}
+
+function isValidSolution(board) {
+  // 校验完整解：每行/列/宫为 1-9 不重复。
+  for (let i = 0; i < 9; i++) {
+    const row = new Set(), col = new Set();
+    for (let j = 0; j < 9; j++) {
+      if (board[i][j] < 1 || board[i][j] > 9) return false;
+      row.add(board[i][j]);
+      if (board[j][i] < 1 || board[j][i] > 9) return false;
+      col.add(board[j][i]);
+    }
+    if (row.size !== 9 || col.size !== 9) return false;
+  }
+  for (let br = 0; br < 3; br++)
+    for (let bc = 0; bc < 3; bc++) {
+      const box = new Set();
+      for (let i = 0; i < 3; i++)
+        for (let j = 0; j < 3; j++) box.add(board[br*3+i][bc*3+j]);
+      if (box.size !== 9) return false;
+    }
+  return true;
+}
+// ===== SUDOKU_LOGIC_END =====
+
+let puzzle = [];
+
+function buildGrid() {
+  const t = document.getElementById("grid");
+  t.innerHTML = "";
+  for (let r = 0; r < 9; r++) {
+    const tr = document.createElement("tr");
+    for (let c = 0; c < 9; c++) {
+      const td = document.createElement("td");
+      const inp = document.createElement("input");
+      inp.maxLength = 1;
+      inp.dataset.r = r; inp.dataset.c = c;
+      td.appendChild(inp);
+      tr.appendChild(td);
+    }
+    t.appendChild(tr);
+  }
+}
+
+function readBoard() {
+  const b = [];
+  document.querySelectorAll("#grid input").forEach(inp => {
+    const r = +inp.dataset.r, c = +inp.dataset.c;
+    if (!b[r]) b[r] = [];
+    b[r][c] = parseInt(inp.value || "0", 10) || 0;
+  });
+  return b;
+}
+
+function render(board, fixed) {
+  document.querySelectorAll("#grid input").forEach(inp => {
+    const r = +inp.dataset.r, c = +inp.dataset.c;
+    inp.value = board[r][c] || "";
+    inp.parentElement.classList.toggle("fixed", !!(fixed && fixed[r][c]));
+  });
+}
+
+function newGame() {
+  // 简化：用一个固定可解题挖空，保证可解。
+  const full = solveSudoku([
+    [5,3,0, 0,7,0, 0,0,0],
+    [6,0,0, 1,9,5, 0,0,0],
+    [0,9,8, 0,0,0, 0,6,0],
+    [8,0,0, 0,6,0, 0,0,3],
+    [4,0,0, 8,0,3, 0,0,1],
+    [7,0,0, 0,2,0, 0,0,6],
+    [0,6,0, 0,0,0, 2,8,0],
+    [0,0,0, 4,1,9, 0,0,5],
+    [0,0,0, 0,8,0, 0,7,9],
+  ]);
+  // 挖空约 40 格
+  puzzle = full.map(row => row.slice());
+  const fixed = full.map(row => row.slice());
+  for (let k = 0; k < 40; k++) {
+    const r = Math.floor(Math.random()*9), c = Math.floor(Math.random()*9);
+    puzzle[r][c] = 0; fixed[r][c] = 0;
+  }
+  render(puzzle, fixed);
+  document.getElementById("msg").textContent = "已生成新题。";
+}
+
+function solveGame() {
+  const b = readBoard();
+  const sol = solveSudoku(b);
+  if (!sol) { document.getElementById("msg").textContent = "当前盘面无解，请检查输入。"; return; }
+  render(sol, b.map(row => row.map(v => v ? 1 : 0)));
+  document.getElementById("msg").textContent = "已求解。";
+}
+
+function hintOne() {
+  const b = readBoard();
+  const sol = solveSudoku(b);
+  if (!sol) { document.getElementById("msg").textContent = "无解。"; return; }
+  for (let r = 0; r < 9; r++) for (let c = 0; c < 9; c++) {
+    if (!b[r][c]) {
+      const inp = document.querySelector(`#grid input[data-r="${r}"][data-c="${c}"]`);
+      inp.value = sol[r][c];
+      inp.parentElement.classList.add("hint");
+      document.getElementById("msg").textContent = `提示：(${r+1},${c+1}) = ${sol[r][c]}`;
+      return;
+    }
+  }
+}
+
+function clearAll() {
+  document.querySelectorAll("#grid input").forEach(i => i.value = "");
+  document.getElementById("msg").textContent = "";
+}
+
+buildGrid();
+newGame();
+</script>
+</body>
+</html>
